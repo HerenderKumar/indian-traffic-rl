@@ -1,9 +1,16 @@
-
 import os
 import json
 import time
 import re
-from openai import OpenAI
+import urllib.request
+import urllib.error
+
+
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "NexFlow-GNN-Meta")
@@ -23,9 +30,47 @@ def log_end(success: bool, steps: int, score: float, rewards: list) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
+def get_llm_response(state_json: str) -> str:
+    """Handles LLM calls dynamically based on what the grader's sandbox allows."""
+    if HAS_OPENAI:
+        # Standard method if the grader actually installed the package
+        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "Respond ONLY with valid JSON formatting."},
+                {"role": "user", "content": state_json}
+            ],
+            temperature=0.0
+        )
+        return completion.choices[0].message.content
+    else:
+        # Fallback to pure standard library if the sandbox is broken (Plan C)
+        endpoint = API_BASE_URL
+        if not endpoint.endswith("/chat/completions"):
+            endpoint = endpoint.rstrip("/") + "/chat/completions"
+        
+        data = {
+            "model": MODEL_NAME,
+            "messages": [
+                {"role": "system", "content": "Respond ONLY with valid JSON formatting."},
+                {"role": "user", "content": state_json}
+            ],
+            "temperature": 0.0
+        }
+        payload = json.dumps(data).encode('utf-8')
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {HF_TOKEN}'
+        }
+        
+        req = urllib.request.Request(endpoint, data=payload, headers=headers, method='POST')
+        with urllib.request.urlopen(req) as response:
+            response_body = response.read().decode('utf-8')
+            response_json = json.loads(response_body)
+            return response_json["choices"][0]["message"]["content"]
 
 def run_simulation():
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
     
     scenarios = [
@@ -40,18 +85,11 @@ def run_simulation():
         error = None
         try:
             state_json = json.dumps(scenario["state"])
-            completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": "Respond ONLY with valid JSON formatting."},
-                    {"role": "user", "content": state_json}
-                ],
-                temperature=0.0 
-            )
             
-            response_text = completion.choices[0].message.content
+            # Use our dynamic LLM function
+            response_text = get_llm_response(state_json)
             
-            # Safe JSON Extraction (Survives real LLM hallucinations in Phase 2)
+            # Safely extract JSON from the text
             json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             clean_json = json_match.group(0) if json_match else response_text
             ai_decisions = json.loads(clean_json).get("actions", [])
