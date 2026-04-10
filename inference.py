@@ -1,23 +1,38 @@
 import sys
+import glob
 import subprocess
+
+# =====================================================================
+# HACKATHON GRADER CACHE BYPASS (The "God Mode" Fix)
+# =====================================================================
+
+# 1. Try to find the hidden virtual environment in the grading container
+possible_venvs = glob.glob("/app/.venv/lib/python*/site-packages") + \
+                 glob.glob("/tmp/workspace/.venv/lib/python*/site-packages")
+
+for p in possible_venvs:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+# 2. If it STILL can't find it, force the installation on the fly
 try:
     import openai
 except ImportError:
-    print("Forcing openai installation...")
+    print("Packages not found in sys.path. Forcing pip install...", flush=True)
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openai", "numpy"])
+
+
 import os
 import json
 import time
 import re
 from openai import OpenAI
 
-
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "NexFlow-GNN-Meta")
 HF_TOKEN = os.getenv("HF_TOKEN", "dummy_token")
 TASK_NAME = os.getenv("TASK_NAME", os.getenv("OPENENV_TASK", "task_medium"))
 BENCHMARK = os.getenv("BENCHMARK_NAME", "indian-traffic-signal-controller")
-
 
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
