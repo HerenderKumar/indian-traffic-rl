@@ -1,10 +1,13 @@
 # 1. Use a standard, stable Python base image
-FROM python:3.10-slim
+FROM python:3.10-slim-bookworm
+
+# Prevent Python from buffering stdout/stderr (vital for logs)
+ENV PYTHONUNBUFFERED=1
 
 # 2. Set the working directory inside the container
 WORKDIR /app
 
-# 3. Install necessary system build tools (prevents C++ compiler errors)
+# 3. Install necessary system build tools
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
@@ -13,17 +16,18 @@ RUN apt-get update && apt-get install -y \
 # 4. Copy your requirements file into the container
 COPY requirements.txt .
 
-# 5. PLAN B: The Magic Step
-# We ignore the complex uv/lockfiles and force standard pip to install 
-# exactly what we need globally inside the container.
+# 5. Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir openai numpy torch fastapi uvicorn pydantic pyyaml openenv-core requests httpx
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 6. Copy the rest of your project files (inference.py, maps, models)
+# 6. Install CPU-only PyTorch (keeps image small)
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# 7. Copy the rest of your project files
 COPY . .
 
-# 7. Expose the port your FastAPI server runs on
-EXPOSE 8000
+# 8. Expose the port defined in openenv.yaml
+EXPOSE 7860
 
-# 8. Start the FastAPI server (Adjust if your main server file is named differently)
-CMD ["uvicorn", "inference:app", "--host", "0.0.0.0", "--port", "8000"]
+# 9. Run the FastAPI server from server/app.py
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]

@@ -27,8 +27,22 @@ async def startup_event():
     brain = TrafficBrain()
 
 # ==========================================================
+# 0. HEALTH CHECK — fixes {"detail":"Not Found"} on root
+# ==========================================================
+@app.get("/")
+async def root():
+    return {"status": "ok", "model": "NexFlow-GNN-Meta", "version": "4.0.0"}
+
+# ==========================================================
 # 1. OPENENV STATEFUL ENDPOINTS (Indestructible via Request parsing)
 # ==========================================================
+@app.get("/reset")
+async def reset_get():
+    """Handle GET /reset for validators that check via GET."""
+    global env_step_counter
+    env_step_counter = 0
+    return {"observation": {"status": "reset_complete", "queue": 0}, "info": {}}
+
 @app.post("/reset")
 async def reset_space(request: Request):
     """
